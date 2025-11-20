@@ -1,0 +1,112 @@
+version: '3'
+
+vars:
+  OVERLEAF_DIR: overleaf
+  TOOLKIT_DIR: overleaf-toolkit
+  SHARELATEX_TAG: with-texlive-full
+
+tasks:
+  default:
+    desc: Clone, build, and start Overleaf CE locally
+    cmds:
+      - task: up
+
+  clone:
+    desc: Clone Overleaf CE and toolkit repositories if missing
+    cmds:
+      - |
+        if [ -e "{{.OVERLEAF_DIR}}" ] && [ ! -d "{{.OVERLEAF_DIR}}" ]; then
+          echo "error: {{.OVERLEAF_DIR}} がディレクトリ以外として存在しています。削除または移動してください。" >&2
+          exit 1
+        fi
+        [ -d "{{.OVERLEAF_DIR}}" ] || git clone https://github.com/overleaf/overleaf "{{.OVERLEAF_DIR}}"
+      - |
+        if [ -e "{{.TOOLKIT_DIR}}" ] && [ ! -d "{{.TOOLKIT_DIR}}" ]; then
+          echo "error: {{.TOOLKIT_DIR}} がディレクトリ以外として存在しています。削除または移動してください。" >&2
+          exit 1
+        fi
+        [ -d "{{.TOOLKIT_DIR}}" ] || git clone https://github.com/overleaf/toolkit.git "{{.TOOLKIT_DIR}}"
+
+  build:
+    desc: Build Overleaf CE base and community images
+    cmds:
+      - |
+        if [ ! -d "{{.OVERLEAF_DIR}}/server-ce" ]; then
+          echo "error: {{.OVERLEAF_DIR}}/server-ce が見つかりません。先に task clone を実行してください。" >&2
+          exit 1
+        fi
+      - cd "{{.OVERLEAF_DIR}}/server-ce" && make build-base
+      - cd "{{.OVERLEAF_DIR}}/server-ce" && make build-community
+
+  toolkit_init:
+    desc: Initialize Overleaf toolkit and start containers
+    cmds:
+      - |
+        if [ ! -d "{{.TOOLKIT_DIR}}" ]; then
+          echo "error: {{.TOOLKIT_DIR}} が見つかりません。先に task clone を実行してください。" >&2
+          exit 1
+        fi
+      - cd "{{.TOOLKIT_DIR}}" && bin/init
+      - cd "{{.TOOLKIT_DIR}}" && mkdir -p data/sharelatex data/mongo data/redis data/nginx
+      - cd "{{.TOOLKIT_DIR}}" && bin/up
+
+  toolkit_texlive:
+    desc: Update TeX Live repositories and install scheme-full in the sharelatex container
+    cmds:
+      - docker exec sharelatex tlmgr update --self
+      - docker exec sharelatex tlmgr install scheme-full
+
+  toolkit_commit_image:
+    desc: Commit sharelatex container to sharelatex/sharelatex:{{.SHARELATEX_TAG}}
+    cmds:
+      - |
+        if ! docker ps --format '{{"{{.Names}}"}}' | grep -q '^sharelatex$'; then
+          echo "error: sharelatex コンテナが起動していません。bin/up 後に実行してください。" >&2
+          exit 1
+        fi
+        docker commit sharelatex "sharelatex/sharelatex:{{.SHARELATEX_TAG}}"
+
+  toolkit_patch_compose:
+    desc: Rewrite overleaf-toolkit/lib/shared-functions.sh to use tag {{.SHARELATEX_TAG}}
+    cmds:
+      - |
+        file="{{.TOOLKIT_DIR}}/lib/shared-functions.sh"
+        if [ ! -f "$file" ]; then
+          echo "error: $file が見つかりません。先に task clone を実行してください。" >&2
+          exit 1
+        fi
+        old='export IMAGE="$image_name:$version"'
+        new='export IMAGE="$image_name:{{.SHARELATEX_TAG}}"'
+        if grep -qF "$new" "$file"; then
+          echo "already patched"
+          exit 0
+        fi
+        if ! grep -qF "$old" "$file"; then
+          echo "error: target line not found. manual check needed." >&2
+          exit 1
+        fi
+        perl -0pi -e 's/export IMAGE="[^"]*"/export IMAGE="\\$image_name:{{.SHARELATEX_TAG}}"/' "$file"
+
+  toolkit_restart:
+    desc: Restart overleaf using toolkit (bin/stop && bin/up)
+    cmds:
+      - cd "{{.TOOLKIT_DIR}}" && bin/stop
+      - cd "{{.TOOLKIT_DIR}}" && bin/up
+
+  toolkit_stop:
+    desc: Stop overleaf toolkit containers
+    cmds:
+      - cd "{{.TOOLKIT_DIR}}" && bin/stop
+
+  toolkit_start:
+    desc: Start overleaf toolkit containers (no rebuild)
+    cmds:
+      - cd "{{.TOOLKIT_DIR}}" && bin/start
+
+  up:
+    desc: Build images, initialize toolkit, and print access URLs
+    cmds:
+      - task: clone
+      - task: build
+      - task: toolkit_init
+      - 'echo "Access: http://localhost/launchpad http://localhost/project"'
