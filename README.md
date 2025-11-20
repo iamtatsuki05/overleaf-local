@@ -29,3 +29,7 @@
 - clone / build を別々に実行したい場合
   - `task clone` / `task build`
 - 何かおかしい場合は `task --list` でタスク一覧を確認してください。
+
+## MARKDOWN
+NOTE:
+- macOS/arm64 環境で公式の sharelatex イメージが x86_64 メインのため、ローカル build 済みの `sharelatex/sharelatex:main` を既定バージョン（6.0.1）にタグ付けする処理を Taskfile に入れ、セムバ以外の version 記載による起動失敗を防ぐため。

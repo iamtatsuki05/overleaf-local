@@ -4,6 +4,17 @@ vars:
   OVERLEAF_DIR: overleaf
   TOOLKIT_DIR: overleaf-toolkit
   SHARELATEX_TAG: with-texlive-full
+  TOOLKIT_DEFAULT_VERSION: 6.0.1
+  GNU_SED_PATH:
+    sh: |
+      if [ -d /opt/homebrew/opt/gnu-sed/libexec/gnubin ]; then
+        echo /opt/homebrew/opt/gnu-sed/libexec/gnubin
+      elif [ -d /usr/local/opt/gnu-sed/libexec/gnubin ]; then
+        echo /usr/local/opt/gnu-sed/libexec/gnubin
+      fi
+
+env:
+  PATH: '{{if .GNU_SED_PATH}}{{.GNU_SED_PATH}}:{{end}}{{.PATH}}'
 
 tasks:
   default:
@@ -46,15 +57,48 @@ tasks:
           echo "error: {{.TOOLKIT_DIR}} が見つかりません。先に task clone を実行してください。" >&2
           exit 1
         fi
-      - cd "{{.TOOLKIT_DIR}}" && bin/init
+      - |
+        if [ "$(uname)" = "Darwin" ] && ! command -v gsed >/dev/null 2>&1; then
+          echo "error: macOS では GNU sed (gsed) が必要です。brew install gnu-sed を実行してください。" >&2
+          exit 1
+        fi
+      - |
+        if [ ! -f "{{.TOOLKIT_DIR}}/config/overleaf.rc" ]; then
+          export PATH="{{if .GNU_SED_PATH}}{{.GNU_SED_PATH}}:{{end}}{{.PATH}}"
+          bash -c 'cd "{{.TOOLKIT_DIR}}" && bin/init'
+        else
+          echo "config already exists, skip bin/init"
+        fi
+      - |
+        if [ "$(uname)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
+          version_file="{{.TOOLKIT_DIR}}/config/version"
+          current_version=""
+          [ -f "$version_file" ] && current_version=$(head -n 1 "$version_file")
+          if ! expr "$current_version" : '^[0-9]\+\.[0-9]\+\.[0-9]\+' >/dev/null; then
+            echo "config/version が不正値 (${current_version:-<empty>}) のため {{.TOOLKIT_DEFAULT_VERSION}} にリセットします" >&2
+            current_version="{{.TOOLKIT_DEFAULT_VERSION}}"
+            echo "$current_version" > "$version_file"
+          fi
+          if docker image inspect sharelatex/sharelatex:main >/dev/null 2>&1; then
+            echo "Tagging local sharelatex/sharelatex:main -> sharelatex/sharelatex:$current_version (arm64 用)" >&2
+            docker tag sharelatex/sharelatex:main "sharelatex/sharelatex:$current_version"
+          else
+            echo "warning: sharelatex/sharelatex:main がありません。先に make build-community を実行してください。" >&2
+          fi
+        fi
       - cd "{{.TOOLKIT_DIR}}" && mkdir -p data/sharelatex data/mongo data/redis data/nginx
-      - cd "{{.TOOLKIT_DIR}}" && bin/up
+      - cmd: |
+          export PATH="{{if .GNU_SED_PATH}}{{.GNU_SED_PATH}}:{{end}}{{.PATH}}"
+          bash -c 'cd "{{.TOOLKIT_DIR}}" && bin/up'
+        env:
+          PATH: '{{if .GNU_SED_PATH}}{{.GNU_SED_PATH}}:{{end}}{{.PATH}}'
 
   toolkit_texlive:
     desc: Update TeX Live repositories and install scheme-full in the sharelatex container
     cmds:
       - docker exec sharelatex tlmgr update --self
       - docker exec sharelatex tlmgr install scheme-full
+      - docker exec sharelatex tlmgr install xstring
 
   toolkit_commit_image:
     desc: Commit sharelatex container to sharelatex/sharelatex:{{.SHARELATEX_TAG}}
@@ -90,18 +134,49 @@ tasks:
   toolkit_restart:
     desc: Restart overleaf using toolkit (bin/stop && bin/up)
     cmds:
-      - cd "{{.TOOLKIT_DIR}}" && bin/stop
-      - cd "{{.TOOLKIT_DIR}}" && bin/up
+      - |
+        if [ "$(uname)" = "Darwin" ] && ! command -v gsed >/dev/null 2>&1; then
+          echo "error: macOS では GNU sed (gsed) が必要です。brew install gnu-sed を実行してください。" >&2
+          exit 1
+        fi
+      - cmd: |
+          export PATH="{{if .GNU_SED_PATH}}{{.GNU_SED_PATH}}:{{end}}{{.PATH}}"
+          bash -c 'cd "{{.TOOLKIT_DIR}}" && bin/stop'
+        env:
+          PATH: '{{if .GNU_SED_PATH}}{{.GNU_SED_PATH}}:{{end}}{{.PATH}}'
+      - cmd: |
+          export PATH="{{if .GNU_SED_PATH}}{{.GNU_SED_PATH}}:{{end}}{{.PATH}}"
+          bash -c 'cd "{{.TOOLKIT_DIR}}" && bin/up'
+        env:
+          PATH: '{{if .GNU_SED_PATH}}{{.GNU_SED_PATH}}:{{end}}{{.PATH}}'
 
   toolkit_stop:
     desc: Stop overleaf toolkit containers
     cmds:
-      - cd "{{.TOOLKIT_DIR}}" && bin/stop
+      - |
+        if [ "$(uname)" = "Darwin" ] && ! command -v gsed >/dev/null 2>&1; then
+          echo "error: macOS では GNU sed (gsed) が必要です。brew install gnu-sed を実行してください。" >&2
+          exit 1
+        fi
+      - cmd: |
+          export PATH="{{if .GNU_SED_PATH}}{{.GNU_SED_PATH}}:{{end}}{{.PATH}}"
+          bash -c 'cd "{{.TOOLKIT_DIR}}" && bin/stop'
+        env:
+          PATH: '{{if .GNU_SED_PATH}}{{.GNU_SED_PATH}}:{{end}}{{.PATH}}'
 
   toolkit_start:
     desc: Start overleaf toolkit containers (no rebuild)
     cmds:
-      - cd "{{.TOOLKIT_DIR}}" && bin/start
+      - |
+        if [ "$(uname)" = "Darwin" ] && ! command -v gsed >/dev/null 2>&1; then
+          echo "error: macOS では GNU sed (gsed) が必要です。brew install gnu-sed を実行してください。" >&2
+          exit 1
+        fi
+      - cmd: |
+          export PATH="{{if .GNU_SED_PATH}}{{.GNU_SED_PATH}}:{{end}}{{.PATH}}"
+          bash -c 'cd "{{.TOOLKIT_DIR}}" && bin/start'
+        env:
+          PATH: '{{if .GNU_SED_PATH}}{{.GNU_SED_PATH}}:{{end}}{{.PATH}}'
 
   up:
     desc: Build images, initialize toolkit, and print access URLs
