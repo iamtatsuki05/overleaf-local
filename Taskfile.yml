@@ -97,8 +97,7 @@ tasks:
     desc: Update TeX Live repositories and install scheme-full in the sharelatex container
     cmds:
       - docker exec sharelatex tlmgr update --self
-      - docker exec sharelatex tlmgr install scheme-full
-      - docker exec sharelatex tlmgr install xstring
+      - docker exec sharelatex tlmgr install scheme-full xstring collection-luatex collection-langjapanese xkeyval
 
   toolkit_commit_image:
     desc: Commit sharelatex container to sharelatex/sharelatex:{{.SHARELATEX_TAG}}
